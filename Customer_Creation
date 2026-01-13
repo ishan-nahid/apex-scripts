@@ -1,0 +1,132 @@
+// === Anonymous Apex - Bulk Create QBO Customers from Designation List (with Duplicate Check) ===
+
+String baseUrl = 'callout:QB_Named_Credential/v3/company/' + String.valueOf(System.Label.realmId);
+Http http = new Http();
+
+List<String> namesToCreate = new List<String>{
+    'Al-Qaaim', 'Al-Haadi', 'Al-Hujjat', 'Al-Mahdi', 'Al-Muntadhir', 'Muharram',
+    'Advertising Revenue', 'Education Fund', 'Other Income', 'Qurbani, Fidya and Kaffara',
+    'Fitrah - Non-Sadat', 'Fitrah - Sadat', 'Ramadhan', 'General', 'Burial Donations',
+    'Humanitarian Relief Fund - General', 'Humanitarian Relief Fund - Lebannon', 'Sadaqa',
+    'Niaz - General', 'Capital Projects - JCC', 'Education Scholarship', 'Jaffari Muslim Food Bank',
+    'Board & Committee Programs', 'Soccer', 'Netball', 'Pickleball', 'Tennis', 'Indoor Soccer',
+    'Basketball', 'Misc', 'Badminton', 'Cricket', 'Volleyball', 'Table Tennis',
+    'Boards & Sub-Committees', 'JSS Mommy Connection - Silent Stuggles of Mothers', 'Al-Asr',
+    'Tabligh Programs', 'Soul Sisters', 'Tween Sister', 'Boyz Blast', 'Baligha Beauties',
+    'Childrens Programs', 'Childrens Programs - Donations', 'ILM', 'Khums - Sehme Imam',
+    'Khums - Sehme Sadat', 'Jumah', 'Adult Membership', 'Youth Membership', 'Senior Membership',
+    'Adult Membership Arrears', 'Youth Membership Arrears', 'Senior Membership Arrears',
+    'Capital Projects - MIC', 'Rental', 'Capital Projects - RCC', 'Hunger Campaign',
+    'Razavi Muslim Food Bank', 'Asad Jafri Bursary Fund', 'Bewa Yatim',
+    'Tree Planting Project - JCC', 'Zakat', 'Capital Projects - ZIC', 'Burial Assistance Program',
+    'HST Payable', 'Cemetery Fund', 'Fajr Tabaruk Program', 'HST Receivable', 'Mosque Projects',
+    'Orphanage Fund', 'Student Membership'
+};
+
+Integer totalNames = namesToCreate.size();
+Integer createdCount = 0;
+Integer skippedDuplicate = 0;
+Integer failedCount = 0;
+
+for (String name : namesToCreate) {
+    String trimmedName = name.trim();
+    if (trimmedName.length() < 2) {
+        System.debug('SKIP - Name too short: "' + trimmedName + '"');
+        failedCount++;
+        continue;
+    }
+
+    // ───────────────────────────────────────────────────────
+    // Step 1: Check if Customer already exists by DisplayName
+    // ───────────────────────────────────────────────────────
+    String query = 'SELECT Id, DisplayName FROM Customer WHERE DisplayName = \'' + 
+                   String.escapeSingleQuotes(trimmedName) + '\'';
+    String encodedQuery = EncodingUtil.urlEncode(query, 'UTF-8');
+    String queryEndpoint = baseUrl + '/query?query=' + encodedQuery;
+
+    HttpRequest queryReq = new HttpRequest();
+    queryReq.setEndpoint(queryEndpoint);
+    queryReq.setMethod('GET');
+    queryReq.setHeader('Accept', 'application/json');
+    queryReq.setTimeout(60000);
+
+    HttpResponse queryRes = http.send(queryReq);
+
+    Boolean exists = false;
+    String existingId = null;
+
+    if (queryRes.getStatusCode() == 200) {
+        Map<String, Object> body = (Map<String, Object>) JSON.deserializeUntyped(queryRes.getBody());
+        Map<String, Object> qr = (Map<String, Object>) body.get('QueryResponse');
+
+        if (qr != null && qr.containsKey('Customer')) {
+            List<Object> customers = (List<Object>) qr.get('Customer');
+            if (!customers.isEmpty()) {
+                exists = true;
+                Map<String, Object> cust = (Map<String, Object>) customers[0];
+                existingId = (String) cust.get('Id');
+                System.debug('SKIP (Duplicate) - Exists: "' + trimmedName + '" | QBO Id: ' + existingId);
+                skippedDuplicate++;
+                continue;
+            }
+        }
+    } else {
+        System.debug('Query failed for "' + trimmedName + '" | Status: ' + queryRes.getStatusCode() + 
+                     ' | Body: ' + queryRes.getBody());
+        failedCount++;
+        continue;
+    }
+
+    // ───────────────────────────────────────────────────────
+    // Step 2: Create if not exists
+    // ───────────────────────────────────────────────────────
+    String endpoint = baseUrl + '/customer';
+
+    HttpRequest createReq = new HttpRequest();
+    createReq.setEndpoint(endpoint);
+    createReq.setMethod('POST');
+    createReq.setHeader('Accept', 'application/json');
+    createReq.setHeader('Content-Type', 'application/json');
+    createReq.setTimeout(120000);
+
+    String jsonBody = '{' +
+        '"DisplayName": "' + String.escapeSingleQuotes(trimmedName) + '",' +
+        '"CompanyName": "' + String.escapeSingleQuotes(trimmedName) + '"' +
+    '}';
+
+    createReq.setBody(jsonBody);
+
+    HttpResponse createRes = http.send(createReq);
+
+    if (createRes.getStatusCode() == 200) {
+        Map<String, Object> resp = (Map<String, Object>) JSON.deserializeUntyped(createRes.getBody());
+        Map<String, Object> customer = (Map<String, Object>) resp.get('Customer');
+
+        if (customer != null && customer.containsKey('Id')) {
+            String newId = (String) customer.get('Id');
+            createdCount++;
+            System.debug('SUCCESS - Created: "' + trimmedName + '" | QBO Id: ' + newId);
+        } else {
+            failedCount++;
+            System.debug('Weird 200 - No Id for: "' + trimmedName + '"');
+        }
+    } else {
+        failedCount++;
+        System.debug('CREATE FAILED: "' + trimmedName + '" | Status: ' + createRes.getStatusCode() + 
+                     ' | Body: ' + createRes.getBody());
+        System.debug('Payload: ' + jsonBody);
+    }
+}
+
+// ──────────────────────────────────────────────────────────────
+// FINAL SUMMARY
+// ──────────────────────────────────────────────────────────────
+System.debug('\n╔════════════════════════════════════════════════════════════╗');
+System.debug('║               FINAL QBO CUSTOMER CREATION SUMMARY          ║');
+System.debug('╚════════════════════════════════════════════════════════════╝');
+System.debug('Total names in list                  : ' + totalNames);
+System.debug('Successfully created                 : ' + createdCount);
+System.debug('Skipped (already exists in QBO)      : ' + skippedDuplicate);
+System.debug('Failed / Skipped (errors or invalid) : ' + failedCount);
+System.debug('Process completed at ' + System.now());
+System.debug('Tip: If many duplicates → these funds/programs likely already exist as Customers.');
