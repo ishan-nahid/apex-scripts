@@ -1,0 +1,99 @@
+// === Anonymous Apex - Sync QBO Account Ids to GiftDesignation__c ===
+
+// 1. Base setup
+String baseUrl = 'callout:QB_Named_Credential/v3/company/' + String.valueOf(System.Label.realmId);
+
+// 2. Query ACTIVE accounts with AcctNum
+String query = 'SELECT Id, Name, AcctNum FROM Account WHERE Active = true';
+String encodedQuery = EncodingUtil.urlEncode(query, 'UTF-8');
+String endpoint = baseUrl + '/query?query=' + encodedQuery;
+
+HttpRequest req = new HttpRequest();
+req.setEndpoint(endpoint);
+req.setMethod('GET');
+req.setHeader('Accept', 'application/json');
+req.setTimeout(120000);
+
+Http http = new Http();
+HttpResponse res = http.send(req);
+
+Map<String, String> acctNumToQboId = new Map<String, String>(); // AcctNum (trimmed) → QBO Id
+
+if (res.getStatusCode() == 200) {
+    Map<String, Object> body = (Map<String, Object>) JSON.deserializeUntyped(res.getBody());
+    Map<String, Object> qr = (Map<String, Object>) body.get('QueryResponse');
+
+    if (qr != null && qr.containsKey('Account')) {
+        List<Object> accounts = (List<Object>) qr.get('Account');
+
+        for (Object accObj : accounts) {
+            Map<String, Object> acc = (Map<String, Object>) accObj;
+
+            String qboId     = (String) acc.get('Id');
+            String acctNum   = (String) acc.get('AcctNum');
+
+            if (String.isNotBlank(acctNum)) {
+                String cleanNum = acctNum.trim(); // safe trim - QBO AcctNum shouldn't have spaces but better safe
+                acctNumToQboId.put(cleanNum, qboId);
+
+                System.debug('Mapped: ' + cleanNum + ' → ' + qboId + ' (' + (String)acc.get('Name') + ')');
+            }
+        }
+
+        System.debug('Total mapped accounts with AcctNum: ' + acctNumToQboId.size());
+    } else {
+        System.debug('No Account key in response. Full body: ' + res.getBody());
+    }
+} else {
+    System.debug('QBO Query failed: ' + res.getStatusCode() + ' - ' + res.getBody());
+    // Early exit on failure
+    // return;  // uncomment if running in real script
+}
+
+// ──────────────────────────────────────────────────────────────
+// 3. Now update GiftDesignation__c records
+// ──────────────────────────────────────────────────────────────
+
+if (acctNumToQboId.isEmpty()) {
+    System.debug('No accounts with AcctNum found in QBO → nothing to sync');
+} else {
+    // Query GiftDesignations that need update (have account number but missing/mismatched Id)
+    List<GiftDesignation__c> designationsToUpdate = [
+        SELECT Id, QuickBooks_Account_Number__c, QuickBooks_Account_Id__c
+        FROM GiftDesignation__c
+        WHERE QuickBooks_Account_Number__c != null
+          AND (QuickBooks_Account_Id__c = null OR QuickBooks_Account_Id__c != :null) // can be stricter if needed
+        LIMIT 10000 // safety - adjust or remove
+    ];
+
+    Integer updatedCount = 0;
+    Integer skippedCount = 0;
+
+    for (GiftDesignation__c gd : designationsToUpdate) {
+        String num = gd.QuickBooks_Account_Number__c.trim(); // match trimmed value
+
+        if (acctNumToQboId.containsKey(num)) {
+            String newQboId = acctNumToQboId.get(num);
+
+            // Only update if different (avoid unnecessary DML)
+            if (gd.QuickBooks_Account_Id__c != newQboId) {
+                gd.QuickBooks_Account_Id__c = newQboId;
+                updatedCount++;
+            }
+        } else {
+            skippedCount++;
+            System.debug('No match in QBO for AcctNum: ' + num + ' (GiftDesignation Id: ' + gd.Id + ')');
+        }
+    }
+
+    if (!designationsToUpdate.isEmpty() && updatedCount > 0) {
+        update designationsToUpdate;
+        System.debug('SUCCESS: Updated ' + updatedCount + ' GiftDesignation records with QBO Account Ids');
+    } else {
+        System.debug('No updates needed');
+    }
+
+    System.debug('Skipped (no match): ' + skippedCount);
+}
+
+System.debug('Sync complete.');
