@@ -5,11 +5,11 @@ graph TD
   A -->|Save Form| E[Salesforce]
   E --> F[Form__c Object]
 
-  G[End User] -->|Fill Out Form| H[FormEditor (UI)]
+  G[End User] -->|Fill Out Form| H[FormEditor UI]
   H -->|Submit Form| I[Form Submission]
   I -->|Store Submission| J[Form_Submission__c]
   
-  B -->|Preview Form| K[FormPreviewer (UI)]
+  B -->|Preview Form| K[FormPreviewer UI]
   K -->|Display Form Fields| L[Form Fields Displayed]
   
   M[Form Previewer] -->|Receive Updates| N[FormEditorController]
