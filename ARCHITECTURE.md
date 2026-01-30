@@ -10,29 +10,29 @@ The Salesforce Form Builder is a dynamic form creation and management system tha
 
 ```mermaid
 graph TB
-    subgraph "Frontend Layer"
-        FE1[formEditor LWC<br/>Form Builder Interface]
-        FE2[formPreviewer LWC<br/>Real-time Preview]
-        FE3[PublicForm VF Page<br/>Public Form Display]
-        FE4[formPreviewChannel<br/>Lightning Message Service]
+    subgraph Frontend["Frontend Layer"]
+        FE1["formEditor LWC<br/>Form Builder Interface"]
+        FE2["formPreviewer LWC<br/>Real-time Preview"]
+        FE3["PublicForm VF Page<br/>Public Form Display"]
+        FE4["formPreviewChannel<br/>Lightning Message Service"]
     end
     
-    subgraph "Backend Layer"
-        BE1[FormEditorController<br/>Metadata & Template Management]
-        BE2[FormController<br/>Template Save & Submission]
+    subgraph Backend["Backend Layer"]
+        BE1["FormEditorController<br/>Metadata & Template Management"]
+        BE2["FormController<br/>Template Save & Submission"]
     end
     
-    subgraph "Data Layer"
-        DL1[(Form__c<br/>Form Templates)]
-        DL2[(Form_Submission__c<br/>Form Data)]
+    subgraph DataLayer["Data Layer"]
+        DL1[("Form__c<br/>Form Templates")]
+        DL2[("Form_Submission__c<br/>Form Data")]
     end
     
     FE1 <-->|LMS| FE4
     FE2 <-->|LMS| FE4
-    FE1 -->|@AuraEnabled| BE1
-    FE2 -->|@AuraEnabled| BE1
-    FE1 -->|@AuraEnabled| BE2
-    FE3 -->|@RemoteAction| BE2
+    FE1 -->|AuraEnabled| BE1
+    FE2 -->|AuraEnabled| BE1
+    FE1 -->|AuraEnabled| BE2
+    FE3 -->|RemoteAction| BE2
     BE1 -->|CRUD| DL1
     BE2 -->|CRUD| DL1
     BE2 -->|Insert| DL2
