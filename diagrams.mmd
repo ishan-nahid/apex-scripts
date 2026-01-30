@@ -1,0 +1,16 @@
+
+graph TD
+  A[Admin] -->|Create Form Template| B[FormEditorController]
+  B --> C[Form Template in Salesforce]
+  A -->|Configure Field Dependencies| D[FormEditorController]
+  A -->|Save Form| E[Salesforce]
+  E --> F[Form__c Object]
+
+  G[End User] -->|Fill Out Form| H[FormEditor (UI)]
+  H -->|Submit Form| I[Form Submission]
+  I -->|Store Submission| J[Form_Submission__c]
+  
+  B -->|Preview Form| K[FormPreviewer (UI)]
+  K -->|Display Form Fields| L[Form Fields Displayed]
+  
+  M[Form Previewer] -->|Receive Updates| N[FormEditorController]
